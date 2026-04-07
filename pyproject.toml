@@ -7,6 +7,14 @@ dependencies = [
     "imgui-bundle>=1.5.0",
 ]
 
+[project.optional-dependencies]
+# Real hardware via Micro-Manager 2 + pycromanager bridge.
+# Install: uv pip install -e ".[hardware]"
+# Also installs microscope_control from the bundled submodule.
+hardware = [
+    "pycromanager>=0.13.0",
+]
+
 [project.scripts]
 navigator = "navigator.__main__:main"
 

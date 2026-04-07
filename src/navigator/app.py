@@ -11,8 +11,8 @@ from .viewport import Viewport
 class App:
     PANEL_W = 290.0
 
-    def __init__(self) -> None:
-        self.stage = Stage()
+    def __init__(self, stage: object | None = None) -> None:
+        self.stage = stage if stage is not None else Stage()
         self.viewport = Viewport()
 
         # Go-to inputs
@@ -219,14 +219,18 @@ class App:
 
         imgui.spacing()
         self._section("SPEED", (1.0, 0.6, 0.4, 1.0))
+        import math as _math
         spd = self.stage.speed
-        imgui.set_next_item_width(w)
-        changed, spd = imgui.slider_float(
-            "##spd", spd, 100.0, 50_000.0, "%.0f µm/s",
-            imgui.SliderFlags_.logarithmic,
-        )
-        if changed:
-            self.stage.speed = spd
+        if _math.isnan(spd):
+            imgui.text_disabled("Controlled by MM device props")
+        else:
+            imgui.set_next_item_width(w)
+            changed, spd = imgui.slider_float(
+                "##spd", spd, 100.0, 50_000.0, "%.0f µm/s",
+                imgui.SliderFlags_.logarithmic,
+            )
+            if changed:
+                self.stage.speed = spd
 
         imgui.spacing()
         self._section("ACTIONS", (0.9, 0.9, 0.9, 1.0))
