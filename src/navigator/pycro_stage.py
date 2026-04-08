@@ -251,6 +251,11 @@ class PycroStage:
         pass  # no-op — set speed through MM device property browser
 
     @property
+    def core(self):
+        """Raw pycromanager Core — for imaging and other device-level calls."""
+        return self._core
+
+    @property
     def backend_name(self) -> str:
         return "MM2 (pycromanager)"
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from imgui_bundle import imgui, ImVec2, ImVec4
 
+from .image_store import ImageStore
 from .stage import Stage
 from .viewport import Viewport
 
@@ -28,6 +29,10 @@ class App:
         # Waypoints
         self._wp_name_buf = ""
 
+        # Imaging
+        self._image_store = ImageStore()
+        self._pixel_size_um = 1.468
+
         self._first_frame = True
 
     # ------------------------------------------------------------------
@@ -35,6 +40,8 @@ class App:
     # ------------------------------------------------------------------
 
     def render(self) -> None:
+        self._image_store.upload_pending()   # GPU upload must happen on the GL thread
+
         vp = imgui.get_main_viewport()
         imgui.set_next_window_pos(vp.work_pos)
         imgui.set_next_window_size(vp.work_size)
@@ -81,7 +88,8 @@ class App:
         cursor = imgui.get_cursor_screen_pos()
         avail2 = imgui.get_content_region_avail()
         clicked = self.viewport.draw(
-            self.stage, (cursor.x, cursor.y), (avail2.x, avail2.y)
+            self.stage, (cursor.x, cursor.y), (avail2.x, avail2.y),
+            self._image_store,
         )
         if clicked is not None:
             sx, sy = clicked
@@ -254,6 +262,48 @@ class App:
         if imgui.button("STOP##act", ImVec2(-1, 30)):
             self.stage.stop()
         imgui.pop_style_color(3)
+
+        imgui.spacing()
+        self._section("IMAGING", (0.5, 0.85, 1.0, 1.0))
+
+        core = getattr(self.stage, "core", None)
+        has_gl = True
+        try:
+            import OpenGL.GL  # noqa: F401
+        except ImportError:
+            has_gl = False
+
+        # Pixel size input
+        imgui.set_next_item_width(w)
+        changed, self._pixel_size_um = imgui.input_float(
+            "##px_size", self._pixel_size_um, 0.0, 0.0, "Pixel size %.4f µm"
+        )
+        if changed:
+            self._image_store.pixel_size_um = self._pixel_size_um
+
+        can_snap = core is not None and has_gl
+        snap_label = (
+            "Snapping…" if self._image_store.snapping
+            else "Snap" if can_snap
+            else "Snap (sim)"
+        )
+        if not can_snap:
+            imgui.begin_disabled()
+        if imgui.button(snap_label, ImVec2(w - gap - 60, 28)) and not self._image_store.snapping:
+            sx, sy, _ = self.stage.position
+            self._image_store.snap_async(core, sx, sy)
+        if not can_snap:
+            imgui.end_disabled()
+
+        imgui.same_line()
+        n_imgs = len(self._image_store.images)
+        if imgui.button(f"Clear ({n_imgs})", ImVec2(-1, 28)):
+            self._image_store.clear()
+
+        if self._image_store.last_error:
+            imgui.text_colored(ImVec4(1.0, 0.3, 0.3, 1.0), "Err:")
+            imgui.same_line()
+            imgui.text_wrapped(self._image_store.last_error)
 
         imgui.spacing()
         self._section("WAYPOINTS", (1.0, 0.65, 0.9, 1.0))

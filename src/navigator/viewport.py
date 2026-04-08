@@ -117,6 +117,7 @@ class Viewport:
         stage: Stage,
         vp_pos: tuple[float, float],
         vp_size: tuple[float, float],
+        image_store=None,
     ) -> Optional[tuple[float, float]]:
         """
         Render the viewport and return a clicked stage position, or None.
@@ -198,6 +199,22 @@ class Viewport:
             ImVec2(vp_x, vp_y), ImVec2(vp_x + vp_w, vp_y + vp_h),
             _rgba(0.07, 0.07, 0.09),
         )
+
+        # --- Snapped images (drawn before grid so grid overlays them) ---
+        if image_store is not None:
+            with image_store._lock:
+                imgs = list(image_store.images)
+            for img in imgs:
+                # Centre the image on its stage position
+                scr_cx, scr_cy = self.stage_to_screen(img.stage_x, img.stage_y, cx, cy)
+                half_w = img.width_um  * 0.5 * self.zoom
+                half_h = img.height_um * 0.5 * self.zoom
+                # Screen Y increases downward, stage Y up — image rows are top-to-bottom
+                p_min = ImVec2(scr_cx - half_w, scr_cy - half_h)
+                p_max = ImVec2(scr_cx + half_w, scr_cy + half_h)
+                dl.add_image(img.texture_id, p_min, p_max)
+                # Thin border so image boundary is visible
+                dl.add_rect(p_min, p_max, _rgba(0.6, 0.6, 0.6, 0.4), 0.0, 0, 1.0)
 
         # --- Grid ---
         minor, major = self._nice_grid()
