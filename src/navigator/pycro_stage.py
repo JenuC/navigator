@@ -119,12 +119,12 @@ class PycroStage:
         # ---- Axis limits ----
         lim = settings.get("stage", {}).get("limits", {})
         self.x_range: tuple[float, float] = (
-            lim.get("x_um", {}).get("low",  -50_000.0),
-            lim.get("x_um", {}).get("high",  50_000.0),
+            lim.get("x_um", {}).get("low",  -10_000.0),
+            lim.get("x_um", {}).get("high",  10_000.0),
         )
         self.y_range: tuple[float, float] = (
-            lim.get("y_um", {}).get("low",  -50_000.0),
-            lim.get("y_um", {}).get("high",  50_000.0),
+            lim.get("y_um", {}).get("low",  -10_000.0),
+            lim.get("y_um", {}).get("high",  10_000.0),
         )
         self.z_range: tuple[float, float] = (
             lim.get("z_um", {}).get("low",       0.0),
@@ -141,6 +141,7 @@ class PycroStage:
         self._px, self._py, self._pz = ix, iy, iz          # previous poll values
         self._target_x, self._target_y, self._target_z = ix, iy, iz
         self._is_moving = False
+        self._last_poll_ok = True
         self._lock = threading.Lock()
 
         # ---- Shared state (same shape as Stage) ----
@@ -249,6 +250,15 @@ class PycroStage:
     def speed(self, _: float) -> None:
         pass  # no-op — set speed through MM device property browser
 
+    @property
+    def backend_name(self) -> str:
+        return "MM2 (pycromanager)"
+
+    @property
+    def connected(self) -> bool:
+        with self._lock:
+            return self._last_poll_ok
+
     # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------
@@ -287,6 +297,7 @@ class PycroStage:
                     self._is_moving = moved > self._MOVE_THRESHOLD_UM
                     self._px, self._py, self._pz = x, y, z
                     self._x, self._y, self._z = x, y, z
+                    self._last_poll_ok = True
 
                     # Append to history if moved far enough
                     if math.hypot(x - self.history[-1][0], y - self.history[-1][1]) > 200:
@@ -294,6 +305,8 @@ class PycroStage:
                         if len(self.history) > self.max_history:
                             self.history.pop(0)
             except Exception as exc:
+                with self._lock:
+                    self._last_poll_ok = False
                 print(f"[PycroStage] poll error: {exc}", flush=True)
                 time.sleep(1.0)   # back off on repeated errors
                 continue

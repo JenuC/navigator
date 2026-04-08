@@ -131,6 +131,16 @@ class App:
     # ------------------------------------------------------------------
 
     def _draw_controls(self) -> None:
+        backend = getattr(self.stage, "backend_name", "Simulated")
+        connected = getattr(self.stage, "connected", True)
+        conn_col = ImVec4(0.25, 1.0, 0.35, 1.0) if connected else ImVec4(1.0, 0.3, 0.3, 1.0)
+        conn_label = "CONNECTED" if connected else "DISCONNECTED"
+        self._section("BACKEND", (0.7, 0.7, 0.7, 1.0))
+        imgui.text(backend)
+        imgui.same_line()
+        imgui.text_colored(conn_col, f"● {conn_label}")
+        imgui.spacing()
+
         self._section("POSITION", (0.35, 1.0, 0.55, 1.0))
         x, y, z = self.stage.position
         imgui.text(f"X  {x:+12.2f} µm")
