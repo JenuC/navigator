@@ -152,8 +152,12 @@ class Viewport:
 
         if self._dragging:
             if imgui.is_mouse_down(imgui.MouseButton_.middle):
-                self.pan_x = self._drag_start_p[0] - (mx - self._drag_start_m[0]) / self.zoom
-                self.pan_y = self._drag_start_p[1] + (my - self._drag_start_m[1]) / self.zoom
+                self.pan_x = (
+                    self._drag_start_p[0] - (mx - self._drag_start_m[0]) / self.zoom
+                )
+                self.pan_y = (
+                    self._drag_start_p[1] + (my - self._drag_start_m[1]) / self.zoom
+                )
             else:
                 self._dragging = False
 
@@ -184,9 +188,11 @@ class Viewport:
             stage.move_to(*ctx_wp)
             # Temporarily move to that position to save a waypoint
             import threading, time  # noqa: PLC0415
+
             def _snap():
                 time.sleep(0.05)
                 stage.add_waypoint()
+
             threading.Thread(target=_snap, daemon=True).start()
 
         # ---------------------------------------------------------------
@@ -196,7 +202,8 @@ class Viewport:
 
         # Background
         dl.add_rect_filled(
-            ImVec2(vp_x, vp_y), ImVec2(vp_x + vp_w, vp_y + vp_h),
+            ImVec2(vp_x, vp_y),
+            ImVec2(vp_x + vp_w, vp_y + vp_h),
             _rgba(0.07, 0.07, 0.09),
         )
 
@@ -207,33 +214,35 @@ class Viewport:
             for img in imgs:
                 # Centre the image on its stage position
                 scr_cx, scr_cy = self.stage_to_screen(img.stage_x, img.stage_y, cx, cy)
-                half_w = img.width_um  * 0.5 * self.zoom
+                half_w = img.width_um * 0.5 * self.zoom
                 half_h = img.height_um * 0.5 * self.zoom
                 # Screen Y increases downward, stage Y up — image rows are top-to-bottom
                 p_min = ImVec2(scr_cx - half_w, scr_cy - half_h)
                 p_max = ImVec2(scr_cx + half_w, scr_cy + half_h)
-<<<<<<< HEAD
                 dl.add_image(imgui.ImTextureRef(img.texture_id), p_min, p_max)
-=======
-                dl.add_image(imgui.ImTextureRef(imgui.ImTextureID(img.texture_id)), p_min, p_max)
->>>>>>> eaf7c827573ca5035e2f2f915fc70813876f38b1
                 # Thin border so image boundary is visible
                 dl.add_rect(p_min, p_max, _rgba(0.6, 0.6, 0.6, 0.4), 0.0, 0, 1.0)
 
         # --- Grid ---
         minor, major = self._nice_grid()
         # Visible stage extents
-        ls, ts = self.screen_to_stage(vp_x, vp_y, cx, cy)         # left, top-of-screen (high Y)
-        rs, bs = self.screen_to_stage(vp_x + vp_w, vp_y + vp_h, cx, cy)  # right, bottom-of-screen (low Y)
+        ls, ts = self.screen_to_stage(
+            vp_x, vp_y, cx, cy
+        )  # left, top-of-screen (high Y)
+        rs, bs = self.screen_to_stage(
+            vp_x + vp_w, vp_y + vp_h, cx, cy
+        )  # right, bottom-of-screen (low Y)
 
         x = math.floor(ls / minor) * minor
         while x <= rs + minor:
             spx, _ = self.stage_to_screen(x, 0, cx, cy)
             on_major = abs(round(x / major) * major - x) < 0.1
             on_axis = abs(x) < 0.1
-            col = (_rgba(0.55, 0.55, 0.55) if on_axis
-                   else _rgba(0.28, 0.28, 0.30) if on_major
-                   else _rgba(0.14, 0.14, 0.16))
+            col = (
+                _rgba(0.55, 0.55, 0.55)
+                if on_axis
+                else _rgba(0.28, 0.28, 0.30) if on_major else _rgba(0.14, 0.14, 0.16)
+            )
             thick = 1.5 if on_axis else (1.0 if on_major else 0.5)
             dl.add_line(ImVec2(spx, vp_y), ImVec2(spx, vp_y + vp_h), col, thick)
             x += minor
@@ -243,9 +252,11 @@ class Viewport:
             _, spy = self.stage_to_screen(0, y, cx, cy)
             on_major = abs(round(y / major) * major - y) < 0.1
             on_axis = abs(y) < 0.1
-            col = (_rgba(0.55, 0.55, 0.55) if on_axis
-                   else _rgba(0.28, 0.28, 0.30) if on_major
-                   else _rgba(0.14, 0.14, 0.16))
+            col = (
+                _rgba(0.55, 0.55, 0.55)
+                if on_axis
+                else _rgba(0.28, 0.28, 0.30) if on_major else _rgba(0.14, 0.14, 0.16)
+            )
             thick = 1.5 if on_axis else (1.0 if on_major else 0.5)
             dl.add_line(ImVec2(vp_x, spy), ImVec2(vp_x + vp_w, spy), col, thick)
             y += minor
@@ -254,7 +265,9 @@ class Viewport:
         bx0, by0 = self.stage_to_screen(stage.x_range[0], stage.y_range[0], cx, cy)
         bx1, by1 = self.stage_to_screen(stage.x_range[1], stage.y_range[1], cx, cy)
         # by0 > by1 because Y is flipped
-        dl.add_rect(ImVec2(bx0, by1), ImVec2(bx1, by0), _rgba(0.8, 0.2, 0.2, 0.5), 0.0, 0, 2.0)
+        dl.add_rect(
+            ImVec2(bx0, by1), ImVec2(bx1, by0), _rgba(0.8, 0.2, 0.2, 0.5), 0.0, 0, 2.0
+        )
 
         # --- History trail ---
         if self.show_history and len(stage.history) >= 2:
@@ -264,7 +277,9 @@ class Viewport:
                 hx0, hy0 = self.stage_to_screen(p0[0], p0[1], cx, cy)
                 hx1, hy1 = self.stage_to_screen(p1[0], p1[1], cx, cy)
                 alpha = 0.25 + 0.5 * (i / len(stage.history))
-                dl.add_line(ImVec2(hx0, hy0), ImVec2(hx1, hy1), _rgba(0.3, 0.6, 1.0, alpha), 1.5)
+                dl.add_line(
+                    ImVec2(hx0, hy0), ImVec2(hx1, hy1), _rgba(0.3, 0.6, 1.0, alpha), 1.5
+                )
 
         # --- Waypoints ---
         if self.show_waypoints:
@@ -304,10 +319,23 @@ class Viewport:
         scale_px = scale_stage * self.zoom
         sb_x = vp_x + 18
         sb_y = vp_y + vp_h - 22
-        dl.add_line(ImVec2(sb_x, sb_y), ImVec2(sb_x + scale_px, sb_y), _rgba(0.8, 0.8, 0.8), 1.5)
-        dl.add_line(ImVec2(sb_x, sb_y - 4), ImVec2(sb_x, sb_y + 4), _rgba(0.8, 0.8, 0.8), 1.5)
-        dl.add_line(ImVec2(sb_x + scale_px, sb_y - 4), ImVec2(sb_x + scale_px, sb_y + 4), _rgba(0.8, 0.8, 0.8), 1.5)
-        lbl = f"{scale_stage:.0f} µm" if scale_stage < 1000 else f"{scale_stage / 1000:.1f} mm"
+        dl.add_line(
+            ImVec2(sb_x, sb_y), ImVec2(sb_x + scale_px, sb_y), _rgba(0.8, 0.8, 0.8), 1.5
+        )
+        dl.add_line(
+            ImVec2(sb_x, sb_y - 4), ImVec2(sb_x, sb_y + 4), _rgba(0.8, 0.8, 0.8), 1.5
+        )
+        dl.add_line(
+            ImVec2(sb_x + scale_px, sb_y - 4),
+            ImVec2(sb_x + scale_px, sb_y + 4),
+            _rgba(0.8, 0.8, 0.8),
+            1.5,
+        )
+        lbl = (
+            f"{scale_stage:.0f} µm"
+            if scale_stage < 1000
+            else f"{scale_stage / 1000:.1f} mm"
+        )
         dl.add_text(ImVec2(sb_x, sb_y - 16), _rgba(0.8, 0.8, 0.8), lbl)
 
         # --- Mouse coordinate readout ---
