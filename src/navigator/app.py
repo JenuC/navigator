@@ -32,6 +32,8 @@ class App:
         # Imaging
         self._image_store = ImageStore()
         self._pixel_size_um = 1.468
+        self._img_invert_x = False
+        self._img_invert_y = False
 
         self._first_frame = True
 
@@ -90,6 +92,8 @@ class App:
         clicked = self.viewport.draw(
             self.stage, (cursor.x, cursor.y), (avail2.x, avail2.y),
             self._image_store,
+            self._img_invert_x,
+            self._img_invert_y,
         )
         if clicked is not None:
             sx, sy = clicked
@@ -304,6 +308,10 @@ class App:
             imgui.text_colored(ImVec4(1.0, 0.3, 0.3, 1.0), "Err:")
             imgui.same_line()
             imgui.text_wrapped(self._image_store.last_error)
+
+        _, self._img_invert_x = imgui.checkbox("Invert X##img", self._img_invert_x)
+        imgui.same_line()
+        _, self._img_invert_y = imgui.checkbox("Invert Y##img", self._img_invert_y)
 
         imgui.spacing()
         self._section("WAYPOINTS", (1.0, 0.65, 0.9, 1.0))

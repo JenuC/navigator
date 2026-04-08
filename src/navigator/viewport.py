@@ -118,6 +118,8 @@ class Viewport:
         vp_pos: tuple[float, float],
         vp_size: tuple[float, float],
         image_store=None,
+        img_invert_x: bool = False,
+        img_invert_y: bool = False,
     ) -> Optional[tuple[float, float]]:
         """
         Render the viewport and return a clicked stage position, or None.
@@ -211,15 +213,17 @@ class Viewport:
         if image_store is not None:
             with image_store._lock:
                 imgs = list(image_store.images)
+            uv_min = ImVec2(1.0 if img_invert_x else 0.0, 1.0 if img_invert_y else 0.0)
+            uv_max = ImVec2(0.0 if img_invert_x else 1.0, 0.0 if img_invert_y else 1.0)
             for img in imgs:
-                # Centre the image on its stage position
-                scr_cx, scr_cy = self.stage_to_screen(img.stage_x, img.stage_y, cx, cy)
-                half_w = img.width_um * 0.5 * self.zoom
-                half_h = img.height_um * 0.5 * self.zoom
-                # Screen Y increases downward, stage Y up — image rows are top-to-bottom
-                p_min = ImVec2(scr_cx - half_w, scr_cy - half_h)
-                p_max = ImVec2(scr_cx + half_w, scr_cy + half_h)
-                dl.add_image(imgui.ImTextureRef(img.texture_id), p_min, p_max)
+                # stage_x/y is the top-left corner of the image in stage space.
+                # Stage Y increases upward, so top-left in stage = top-left on screen.
+                scr_x, scr_y = self.stage_to_screen(img.stage_x, img.stage_y, cx, cy)
+                w_px = img.width_um  * self.zoom
+                h_px = img.height_um * self.zoom
+                p_min = ImVec2(scr_x, scr_y)
+                p_max = ImVec2(scr_x + w_px, scr_y + h_px)
+                dl.add_image(imgui.ImTextureRef(img.texture_id), p_min, p_max, uv_min, uv_max)
                 # Thin border so image boundary is visible
                 dl.add_rect(p_min, p_max, _rgba(0.6, 0.6, 0.6, 0.4), 0.0, 0, 1.0)
 
