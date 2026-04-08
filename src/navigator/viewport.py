@@ -212,7 +212,11 @@ class Viewport:
                 # Screen Y increases downward, stage Y up — image rows are top-to-bottom
                 p_min = ImVec2(scr_cx - half_w, scr_cy - half_h)
                 p_max = ImVec2(scr_cx + half_w, scr_cy + half_h)
+<<<<<<< HEAD
                 dl.add_image(imgui.ImTextureRef(img.texture_id), p_min, p_max)
+=======
+                dl.add_image(imgui.ImTextureRef(imgui.ImTextureID(img.texture_id)), p_min, p_max)
+>>>>>>> eaf7c827573ca5035e2f2f915fc70813876f38b1
                 # Thin border so image boundary is visible
                 dl.add_rect(p_min, p_max, _rgba(0.6, 0.6, 0.6, 0.4), 0.0, 0, 1.0)
 

@@ -1,0 +1,6 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<StageLocations>
+  <StageLocation index="0" x="-11102.026" y="7978.43" z="-125.875, -5.6843418860808E-14" rotation="0" />
+  <StageLocation index="1" x="-11554.447" y="7978.43" z="-125.875, -5.6843418860808E-14" rotation="0" />
+  <StageLocation index="2" x="-11554.447" y="7552.528" z="-125.875, -5.6843418860808E-14" rotation="0" />
+</StageLocations>

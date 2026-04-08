@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(uv --version)",
+      "Bash(uv init:*)",
+      "Bash(mkdir -p src/navigator)",
+      "Bash(uv run:*)",
+      "Bash(tasklist)"
+    ]
+  }
+}
