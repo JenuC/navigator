@@ -100,6 +100,10 @@ def main() -> None:
         fps_idle=60,
     )
 
+    # Clean shutdown — stop background threads before the interpreter finalizes
+    if hasattr(stage, "shutdown"):
+        stage.shutdown()
+
 
 if __name__ == "__main__":
     main()

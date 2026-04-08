@@ -1,0 +1,11 @@
+ uv run navigator --hardware
+[navigator] Connecting to Micro-Manager 2 …
+[navigator] Connected.  Stage position: X=-4642.5  Y=-87.9  Z=31.80 µm
+[PycroStage] poll error: java.lang.NullPointerException
+Fatal Python error: _enter_buffered_busy: could not acquire lock for <_io.BufferedWriter name='<stdout>'> at interpreter shutdown, possibly due to daemon threads
+Python runtime state: finalizing (tstate=0x00007ff978a96da0)
+
+Current thread 0x00002b60 (most recent call first):
+  <no Python frame>
+
+Extension modules: numpy._core._multiarray_umath, numpy.linalg._umath_linalg, zmq.backend.cython._zmq, charset_normalizer.md, charset_normalizer.cd, requests.packages.charset_normalizer.md, requests.packages.chardet.md, requests.packages.charset_normalizer.cd, requests.packages.chardet.cd, pymmcore._pymmcore_swig, yaml._yaml, numpy.random._common, numpy.random.bit_generator, numpy.random._bounded_integers, numpy.random._pcg64, numpy.random._generator, numpy.random._mt19937, numpy.random._philox, numpy.random._sfc64, numpy.random.mtrand (total: 20)

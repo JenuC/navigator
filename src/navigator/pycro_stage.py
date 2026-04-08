@@ -143,6 +143,7 @@ class PycroStage:
         self._is_moving = False
         self._last_poll_ok = True
         self._lock = threading.Lock()
+        self._stop_event = threading.Event()
 
         # ---- Shared state (same shape as Stage) ----
         self.waypoints: list[Waypoint] = []
@@ -287,10 +288,15 @@ class PycroStage:
         except Exception as exc:
             print(f"[PycroStage] move error: {exc}", flush=True)
 
+    def shutdown(self) -> None:
+        """Signal the poll thread to stop and wait for it to exit."""
+        self._stop_event.set()
+        self._thread.join(timeout=2.0)
+
     def _poll_loop(self) -> None:
         """Read position from hardware at _POLL_HZ; update is_moving and history."""
         interval = 1.0 / self._POLL_HZ
-        while True:
+        while not self._stop_event.is_set():
             try:
                 x, y, z = self._hw.get_xyz()
                 with self._lock:
@@ -316,4 +322,4 @@ class PycroStage:
                 time.sleep(1.0)   # back off on repeated errors
                 continue
 
-            time.sleep(interval)
+            self._stop_event.wait(interval)
