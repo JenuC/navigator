@@ -41,6 +41,7 @@ class Viewport:
         self.pan_y: float = 0.0
         self.show_history: bool = True
         self.show_waypoints: bool = True
+        self.show_mark_points: bool = True
 
         self._dragging: bool = False
         self._drag_start_m: tuple[float, float] = (0.0, 0.0)
@@ -120,6 +121,7 @@ class Viewport:
         image_store=None,
         img_invert_x: bool = False,
         img_invert_y: bool = False,
+        mark_points: list | None = None,
     ) -> Optional[tuple[float, float]]:
         """
         Render the viewport and return a clicked stage position, or None.
@@ -178,11 +180,14 @@ class Viewport:
                 sx, sy = self._ctx_menu_pos
                 imgui.text(f"({sx:.1f}, {sy:.1f}) µm")
                 imgui.separator()
-                if imgui.menu_item("Move here")[0]:
+                if imgui.menu_item("Move here", "", False)[0]:
                     clicked_pos = (sx, sy)
-                if imgui.menu_item("Add waypoint here")[0]:
+                if imgui.menu_item("Add waypoint here", "", False)[0]:
                     ctx_wp = (sx, sy)
-                if imgui.menu_item("Center view here")[0]:
+                if mark_points is not None and imgui.menu_item("Mark point here", "", False)[0]:
+                    n = len(mark_points) + 1
+                    mark_points.append([f"P{n}", sx, sy])
+                if imgui.menu_item("Center view here", "", False)[0]:
                     self.center_on(sx, sy)
             imgui.end_popup()
 
@@ -292,6 +297,15 @@ class Viewport:
                 dl.add_circle_filled(ImVec2(wpx, wpy), 6.0, _rgba(1.0, 0.4, 0.8))
                 dl.add_circle(ImVec2(wpx, wpy), 7.0, _rgba(1.0, 0.75, 0.93), 0, 1.5)
                 dl.add_text(ImVec2(wpx + 9, wpy - 10), _rgba(1.0, 0.75, 0.93), wp.name)
+
+        # --- Mark points ---
+        if self.show_mark_points and mark_points:
+            for pt in mark_points:
+                label, sx, sy = pt[0], pt[1], pt[2]
+                mpx, mpy = self.stage_to_screen(sx, sy, cx, cy)
+                dl.add_circle_filled(ImVec2(mpx, mpy), 6.0, _rgba(0.2, 0.85, 0.75))
+                dl.add_circle(ImVec2(mpx, mpy), 8.0, _rgba(0.4, 1.0, 0.9), 0, 1.5)
+                dl.add_text(ImVec2(mpx + 10, mpy - 10), _rgba(0.4, 1.0, 0.9), label)
 
         # --- Target marker (diamond) ---
         tx, ty, _ = stage.target

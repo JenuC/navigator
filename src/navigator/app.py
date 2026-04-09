@@ -29,6 +29,9 @@ class App:
         # Waypoints
         self._wp_name_buf = ""
 
+        # Mark points
+        self._mark_points: list[list] = []  # each: [label, x, y]
+
         # Imaging
         self._image_store = ImageStore()
         self._pixel_size_um = 1.468
@@ -94,6 +97,7 @@ class App:
             self._image_store,
             self._img_invert_x,
             self._img_invert_y,
+            self._mark_points,
         )
         if clicked is not None:
             sx, sy = clicked
@@ -132,6 +136,8 @@ class App:
         _, self.viewport.show_history = imgui.checkbox("Trail", self.viewport.show_history)
         imgui.same_line()
         _, self.viewport.show_waypoints = imgui.checkbox("Waypoints", self.viewport.show_waypoints)
+        imgui.same_line()
+        _, self.viewport.show_mark_points = imgui.checkbox("Points", self.viewport.show_mark_points)
         imgui.same_line(spacing=12)
         zoom_pct = self.viewport.zoom * 1000
         imgui.text(f"Zoom {zoom_pct:.2f}x")
@@ -143,6 +149,17 @@ class App:
     # ------------------------------------------------------------------
 
     def _draw_controls(self) -> None:
+        if not imgui.begin_tab_bar("##ctrl_tabs"):
+            return
+        if imgui.begin_tab_item("Stage")[0]:
+            self._draw_stage_tab()
+            imgui.end_tab_item()
+        if imgui.begin_tab_item("Points")[0]:
+            self._draw_points_tab()
+            imgui.end_tab_item()
+        imgui.end_tab_bar()
+
+    def _draw_stage_tab(self) -> None:
         backend = getattr(self.stage, "backend_name", "Simulated")
         connected = getattr(self.stage, "connected", True)
         conn_col = ImVec4(0.25, 1.0, 0.35, 1.0) if connected else ImVec4(1.0, 0.3, 0.3, 1.0)
@@ -341,6 +358,40 @@ class App:
             imgui.pop_id()
         if to_del >= 0:
             del self.stage.waypoints[to_del]
+        imgui.end_child()
+
+    def _draw_points_tab(self) -> None:
+        w = imgui.get_content_region_avail().x
+        gap = imgui.get_style().item_spacing.x
+
+        half = (w - gap) * 0.5
+        if imgui.button("Mark current##mp", ImVec2(half, 28)):
+            x, y, _ = self.stage.position
+            n = len(self._mark_points) + 1
+            self._mark_points.append([f"P{n}", x, y])
+
+        imgui.same_line()
+        n_pts = len(self._mark_points)
+        if imgui.button(f"Clear ({n_pts})##mpclear", ImVec2(-1, 28)):
+            self._mark_points.clear()
+
+        imgui.separator()
+        imgui.begin_child("##mplist", ImVec2(-1, -1), imgui.ChildFlags_.none)
+        to_del = -1
+        for i, pt in enumerate(self._mark_points):
+            imgui.push_id(i)
+            if imgui.small_button("Go##mpgo"):
+                self.stage.move_to(pt[1], pt[2])
+            imgui.same_line()
+            if imgui.small_button("X##mpdel"):
+                to_del = i
+            imgui.same_line()
+            imgui.text_colored(ImVec4(0.4, 1.0, 0.9, 1.0), pt[0])
+            imgui.same_line()
+            imgui.text_disabled(f"({pt[1]:.0f}, {pt[2]:.0f})")
+            imgui.pop_id()
+        if to_del >= 0:
+            del self._mark_points[to_del]
         imgui.end_child()
 
     # ------------------------------------------------------------------
