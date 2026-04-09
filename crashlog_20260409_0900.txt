@@ -1,0 +1,30 @@
+ uv pip install -e ".[spc,hardware]" > .\crashlog_20260409_0900.txt
+  × Failed to build `navigator @ file:///C:/Users/lociuser/code/jenu/navigator`
+  ├─▶ The build backend returned an error
+  ╰─▶ Call to `hatchling.build.prepare_metadata_for_build_editable` failed (exit code: 1)
+
+      [stderr]
+      Traceback (most recent call last):
+        File "<string>", line 14, in <module>
+          dirname =
+      prepare_metadata_for_build("C:\\Users\\lociuser\\AppData\\Local\\uv\\cache\\builds-v0\\.tmpShkVt2\\metadata_directory",
+      {})
+        File "C:\Users\lociuser\AppData\Local\uv\cache\builds-v0\.tmpShkVt2\Lib\site-packages\hatchling\build.py",
+      line 142, in prepare_metadata_for_build_editable
+          f.write(builder.config.core_metadata_constructor(builder.metadata, extra_dependencies=extra_dependencies))
+                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        File "C:\Users\lociuser\AppData\Local\uv\cache\builds-v0\.tmpShkVt2\Lib\site-packages\hatchling\metadata\spec.py",
+      line 584, in construct_metadata_file_2_4
+          if metadata.core.optional_dependencies:
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        File "C:\Users\lociuser\AppData\Local\uv\cache\builds-v0\.tmpShkVt2\Lib\site-packages\hatchling\metadata\core.py",
+      line 1335, in optional_dependencies
+          option: list(entries) for option, entries in self.optional_dependencies_complex.items()
+                                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        File "C:\Users\lociuser\AppData\Local\uv\cache\builds-v0\.tmpShkVt2\Lib\site-packages\hatchling\metadata\core.py",
+      line 1301, in optional_dependencies_complex
+          raise ValueError(message)
+      ValueError: Dependency #1 of option `spc` of field `project.optional-dependencies` cannot be a direct reference
+      unless field `tool.hatch.metadata.allow-direct-references` is set to `true`
+
+      hint: This usually indicates a problem with the package or the build environment.
