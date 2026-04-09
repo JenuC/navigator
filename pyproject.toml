@@ -21,7 +21,6 @@ hardware = [
 # Install: uv pip install -e ".[spc]"
 # Also requires SPCM-DLL from the BH SPCM software installation.
 spc = [
-    "bh_spc @ ./pybhspc",
     "numpy>=1.24",
 ]
 
