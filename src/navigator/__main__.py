@@ -11,6 +11,16 @@ Real hardware via Micro-Manager 2
     Requires:
       * Micro-Manager 2 open with the Python bridge enabled.
       * pycromanager installed: uv pip install -e ".[hardware]"
+
+BH SPC-180NX photon counting
+-----------------------------
+    uv run navigator --spc            (hardware)
+    uv run navigator --spc-sim        (SPCM-DLL simulation)
+
+    Requires:
+      * SPCM-DLL installed (BH SPCM software).
+      * pybhspc installed: uv pip install -e ".[spc]"
+    Flags may be combined with --hardware.
 """
 
 from __future__ import annotations
@@ -42,6 +52,19 @@ def _build_arg_parser() -> argparse.ArgumentParser:
             "Path to a microscope_control settings YAML file "
             "(optional; supplies z_stage name, axis limits, etc.)"
         ),
+    )
+    spc_grp = p.add_mutually_exclusive_group()
+    spc_grp.add_argument(
+        "--spc",
+        action="store_true",
+        default=False,
+        help="Connect to BH SPC-180NX via pybhspc (hardware)",
+    )
+    spc_grp.add_argument(
+        "--spc-sim",
+        action="store_true",
+        default=False,
+        help="Use SPCM-DLL simulation of SPC-180NX (no hardware needed)",
     )
     return p
 
@@ -87,15 +110,46 @@ def _connect_hardware(args: argparse.Namespace):
     return stage
 
 
+def _connect_spc(args: argparse.Namespace):
+    """Return an SPCModule, or exit on failure."""
+    try:
+        from .spc_module import SPCModule
+    except ImportError as exc:
+        print(
+            f"[navigator] bh_spc not available: {exc}\n"
+            "  Run:  uv pip install -e \".[spc]\"\n"
+            "  then try again.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    simulate = args.spc_sim
+    label = "sim" if simulate else "hardware"
+    print(f"[navigator] Initializing SPC-180NX ({label}) …", flush=True)
+    try:
+        spc = SPCModule(mod_no=0, simulate=simulate)
+    except Exception as exc:
+        print(f"[navigator] SPC init failed: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    print("[navigator] SPC ready.")
+    return spc
+
+
 def main() -> None:
     args = _build_arg_parser().parse_args()
 
     stage = _connect_hardware(args) if args.hardware else None
-    app = App(stage=stage)
+    spc = _connect_spc(args) if (args.spc or args.spc_sim) else None
+    app = App(stage=stage, spc=spc)
 
+    title_parts = ["Stage Navigator"]
+    title_parts.append("[MM2]" if args.hardware else "[stage-sim]")
+    if spc is not None:
+        title_parts.append("[SPC]" if args.spc else "[SPC-sim]")
     immapp.run(
         gui_function=app.render,
-        window_title="Stage Navigator" + (" [MM2]" if args.hardware else " [sim]"),
+        window_title=" ".join(title_parts),
         window_size=(1400, 900),
         fps_idle=60,
     )
@@ -103,6 +157,8 @@ def main() -> None:
     # Clean shutdown — stop background threads before the interpreter finalizes
     if hasattr(stage, "shutdown"):
         stage.shutdown()
+    if spc is not None:
+        spc.shutdown()
 
 
 if __name__ == "__main__":

@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import threading
+import time
+from pathlib import Path
+
 from imgui_bundle import imgui, ImVec2, ImVec4
 
 from .image_store import ImageStore
@@ -12,9 +16,10 @@ from .viewport import Viewport
 class App:
     PANEL_W = 290.0
 
-    def __init__(self, stage: object | None = None) -> None:
+    def __init__(self, stage: object | None = None, spc: object | None = None) -> None:
         self.stage = stage if stage is not None else Stage()
         self.viewport = Viewport()
+        self._spc = spc
 
         # Go-to inputs
         self._goto_x = 0.0
@@ -31,6 +36,25 @@ class App:
 
         # Mark points
         self._mark_points: list[list] = []  # each: [label, x, y]
+
+        # Acquisition settings
+        self._dwell_s: float = 10.0
+        self._settle_s: float = 1.0
+        self._output_folder: str = str(Path.cwd() / "data")
+
+        # MM hook: list of [device, property, value] rows applied before each acquisition
+        self._mm_hook_rows: list[list[str]] = []
+        self._hook_dev_buf: str = ""
+        self._hook_prop_buf: str = ""
+        self._hook_val_buf: str = ""
+
+        # Sequence state (guarded by _seq_lock)
+        self._seq_lock = threading.Lock()
+        self._seq_stop_event = threading.Event()
+        self._seq_running: bool = False
+        self._seq_idx: int = -1
+        self._seq_thread: threading.Thread | None = None
+        self._point_results: dict[int, tuple[int, str | None]] = {}
 
         # Imaging
         self._image_store = ImageStore()
@@ -364,20 +388,136 @@ class App:
         w = imgui.get_content_region_avail().x
         gap = imgui.get_style().item_spacing.x
 
+        # ---- Mark / Clear ----
         half = (w - gap) * 0.5
         if imgui.button("Mark current##mp", ImVec2(half, 28)):
             x, y, _ = self.stage.position
             n = len(self._mark_points) + 1
             self._mark_points.append([f"P{n}", x, y])
-
         imgui.same_line()
         n_pts = len(self._mark_points)
         if imgui.button(f"Clear ({n_pts})##mpclear", ImVec2(-1, 28)):
             self._mark_points.clear()
+            with self._seq_lock:
+                self._point_results.clear()
+
+        # ---- ACQUISITION ----
+        self._section("ACQUISITION", (0.9, 0.75, 0.4, 1.0))
+
+        imgui.set_next_item_width(70)
+        _, self._dwell_s = imgui.input_float(
+            "##dwell", self._dwell_s, 0.0, 0.0, "%.1f s"
+        )
+        imgui.same_line()
+        imgui.text("dwell")
+        imgui.same_line(spacing=16)
+        imgui.set_next_item_width(55)
+        _, self._settle_s = imgui.input_float(
+            "##settle", self._settle_s, 0.0, 0.0, "%.1f s"
+        )
+        imgui.same_line()
+        imgui.text("settle")
+
+        imgui.set_next_item_width(w - 32 - gap)
+        _, self._output_folder = imgui.input_text(
+            "##folder", self._output_folder, 512
+        )
+        imgui.same_line()
+        imgui.text_disabled("dir")
+
+        with self._seq_lock:
+            running = self._seq_running
+            seq_idx = self._seq_idx
+
+        can_run = not running and self._spc is not None and len(self._mark_points) > 0
+        if not can_run:
+            imgui.begin_disabled()
+        if imgui.button("Run##seq", ImVec2(half, 28)):
+            self._seq_stop_event.clear()
+            with self._seq_lock:
+                self._point_results.clear()
+                self._seq_running = True
+                self._seq_idx = -1
+            self._seq_thread = threading.Thread(
+                target=self._run_sequence, daemon=True
+            )
+            self._seq_thread.start()
+        if not can_run:
+            imgui.end_disabled()
+
+        imgui.same_line()
+        if not running:
+            imgui.begin_disabled()
+        if imgui.button("Stop##seq", ImVec2(-1, 28)):
+            self._seq_stop_event.set()
+        if not running:
+            imgui.end_disabled()
+
+        if running and self._spc is not None:
+            elapsed = self._spc.elapsed
+            total = len(self._mark_points)
+            imgui.text_colored(
+                ImVec4(1.0, 0.85, 0.3, 1.0),
+                f"Point {seq_idx + 1}/{total}  {elapsed:.1f} s",
+            )
+        elif self._spc is None:
+            imgui.text_colored(
+                ImVec4(0.5, 0.5, 0.5, 1.0), "No SPC  (use --spc or --spc-sim)"
+            )
+
+        # ---- MM HOOK ----
+        self._section("MM HOOK", (0.7, 0.5, 1.0, 1.0))
+        imgui.text_disabled("Applied to pycromanager before each acquisition:")
+
+        col_w = (w - gap * 3) / 3
+        imgui.set_next_item_width(col_w)
+        _, self._hook_dev_buf = imgui.input_text(
+            "##hdev", self._hook_dev_buf, 64
+        )
+        imgui.same_line()
+        imgui.set_next_item_width(col_w)
+        _, self._hook_prop_buf = imgui.input_text(
+            "##hprop", self._hook_prop_buf, 64
+        )
+        imgui.same_line()
+        imgui.set_next_item_width(col_w - 26 - gap)
+        _, self._hook_val_buf = imgui.input_text(
+            "##hval", self._hook_val_buf, 64
+        )
+        imgui.same_line()
+        if imgui.button("+##hadd", ImVec2(-1, 0)) and self._hook_dev_buf.strip():
+            self._mm_hook_rows.append([
+                self._hook_dev_buf.strip(),
+                self._hook_prop_buf.strip(),
+                self._hook_val_buf.strip(),
+            ])
+            self._hook_dev_buf = self._hook_prop_buf = self._hook_val_buf = ""
+
+        hook_h = max(min(len(self._mm_hook_rows) * 20 + 6, 80), 24)
+        imgui.begin_child(
+            "##hookrows", ImVec2(-1, hook_h), imgui.ChildFlags_.borders
+        )
+        hdel = -1
+        for hi, row in enumerate(self._mm_hook_rows):
+            imgui.push_id(hi)
+            if imgui.small_button("X##hdel"):
+                hdel = hi
+            imgui.same_line()
+            imgui.text(f"{row[0]}  |  {row[1]}  =  {row[2]}")
+            imgui.pop_id()
+        if hdel >= 0:
+            del self._mm_hook_rows[hdel]
+        imgui.end_child()
 
         imgui.separator()
+
+        # ---- Points list (takes remaining space) ----
         imgui.begin_child("##mplist", ImVec2(-1, -1), imgui.ChildFlags_.none)
         to_del = -1
+        with self._seq_lock:
+            results = dict(self._point_results)
+            cur_idx = self._seq_idx
+
         for i, pt in enumerate(self._mark_points):
             imgui.push_id(i)
             if imgui.small_button("Go##mpgo"):
@@ -389,10 +529,86 @@ class App:
             imgui.text_colored(ImVec4(0.4, 1.0, 0.9, 1.0), pt[0])
             imgui.same_line()
             imgui.text_disabled(f"({pt[1]:.0f}, {pt[2]:.0f})")
+            imgui.same_line()
+            if i in results:
+                photons, err = results[i]
+                if err is None or err == "":
+                    imgui.text_colored(
+                        ImVec4(0.5, 1.0, 0.5, 1.0), f"{photons:,}"
+                    )
+                else:
+                    imgui.text_colored(ImVec4(1.0, 0.4, 0.4, 1.0), "ERR")
+                    if imgui.is_item_hovered():
+                        imgui.set_tooltip(err)
+            elif i == cur_idx:
+                imgui.text_colored(ImVec4(1.0, 0.85, 0.3, 1.0), "acq…")
+            else:
+                imgui.text_disabled("-")
             imgui.pop_id()
+
         if to_del >= 0:
             del self._mark_points[to_del]
+            with self._seq_lock:
+                self._point_results = {
+                    (k if k < to_del else k - 1): v
+                    for k, v in self._point_results.items()
+                    if k != to_del
+                }
         imgui.end_child()
+
+    # ------------------------------------------------------------------
+    # Sequence helpers
+    # ------------------------------------------------------------------
+
+    def _make_pre_hook(self):
+        """Return a callable that applies all MM hook rows, or None."""
+        core = getattr(self.stage, "core", None)
+        rows = [list(r) for r in self._mm_hook_rows if r[0] and r[1]]
+        if not rows or core is None:
+            return None
+
+        def hook():
+            for device, prop, value in rows:
+                core.set_property(device, prop, value)
+
+        return hook
+
+    def _run_sequence(self) -> None:
+        """Background thread: move → settle → acquire at each marked point."""
+        points = [(i, list(pt)) for i, pt in enumerate(self._mark_points)]
+
+        for i, pt in points:
+            with self._seq_lock:
+                if self._seq_stop_event.is_set():
+                    break
+                self._seq_idx = i
+
+            label, x, y = pt[0], pt[1], pt[2]
+            self.stage.move_to(x, y)
+
+            # Settle delay (interruptible)
+            settle_end = time.monotonic() + self._settle_s
+            while time.monotonic() < settle_end:
+                if self._seq_stop_event.is_set():
+                    break
+                time.sleep(0.05)
+
+            if self._seq_stop_event.is_set():
+                break
+
+            safe = label.replace("/", "_").replace("\\", "_")
+            out = Path(self._output_folder) / f"{safe}_x{x:.0f}_y{y:.0f}.spc"
+
+            photons, err = self._spc.acquire(
+                self._dwell_s, out, self._make_pre_hook(), self._seq_stop_event
+            )
+
+            with self._seq_lock:
+                self._point_results[i] = (photons, err)
+
+        with self._seq_lock:
+            self._seq_running = False
+            self._seq_idx = -1
 
     # ------------------------------------------------------------------
     # Helpers
