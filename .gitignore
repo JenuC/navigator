@@ -11,3 +11,5 @@ wheels/
 
 *.ini
 *.ipynb_checkpoints
+
+*.spc
