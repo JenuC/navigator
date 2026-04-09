@@ -1,3 +1,6 @@
 [submodule "microscope_control"]
 	path = microscope_control
 	url = https://github.com/uw-loci/microscope_control
+[submodule "pybhspc"]
+	path = pybhspc
+	url = https://github.com/marktsuchida/pybhspc
