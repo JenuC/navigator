@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from pathlib import Path
 
 from imgui_bundle import immapp
 
@@ -65,6 +66,15 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         action="store_true",
         default=False,
         help="Use SPCM-DLL simulation of SPC-180NX (no hardware needed)",
+    )
+    p.add_argument(
+        "--spc-ini",
+        metavar="PATH",
+        default=None,
+        help=(
+            "Path to a SPCM .ini file for SPC-180NX initialisation "
+            "(e.g. spcm_SLIM.ini); if omitted, a minimal default is used"
+        ),
     )
     return p
 
@@ -125,9 +135,15 @@ def _connect_spc(args: argparse.Namespace):
 
     simulate = args.spc_sim
     label = "sim" if simulate else "hardware"
+    ini_path = args.spc_ini
+    if ini_path is None and not simulate:
+        default_ini = Path("spcm_SLIM.ini")
+        if default_ini.exists():
+            ini_path = default_ini
+            print(f"[navigator] Using default SPC ini: {default_ini.resolve()}", flush=True)
     print(f"[navigator] Initializing SPC-180NX ({label}) …", flush=True)
     try:
-        spc = SPCModule(mod_no=0, simulate=simulate)
+        spc = SPCModule(mod_no=0, simulate=simulate, ini_path=ini_path)
     except Exception as exc:
         print(f"[navigator] SPC init failed: {exc}", file=sys.stderr)
         sys.exit(1)

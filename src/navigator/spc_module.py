@@ -28,7 +28,12 @@ class SPCModule:
 
     BUF_WORDS = 32768  # 16-bit words per FIFO read call
 
-    def __init__(self, mod_no: int = 0, simulate: bool = False) -> None:
+    def __init__(
+        self,
+        mod_no: int = 0,
+        simulate: bool = False,
+        ini_path: str | Path | None = None,
+    ) -> None:
         import bh_spc
         from bh_spc import spcm
 
@@ -40,13 +45,16 @@ class SPCModule:
         self._photon_count = 0
         self._last_error = ""
 
-        mode = (
-            spcm.DLLOperationMode.SIMULATE_SPC_180NX
-            if simulate
-            else spcm.DLLOperationMode.HARDWARE
-        )
-        with bh_spc.ini_file(bh_spc.minimal_spcm_ini(mode)) as ini:
-            spcm.init(ini)
+        if ini_path is not None:
+            spcm.init(str(ini_path))
+        else:
+            mode = (
+                spcm.DLLOperationMode.SIMULATE_SPC_180NX
+                if simulate
+                else spcm.DLLOperationMode.HARDWARE
+            )
+            with bh_spc.ini_file(bh_spc.minimal_spcm_ini(mode)) as ini:
+                spcm.init(ini)
 
         # FIFO mode = 1 for SPC-180NX; disable hardware time-stop so the
         # duration is controlled in software (also required in simulation).
