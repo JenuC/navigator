@@ -4,13 +4,22 @@ from __future__ import annotations
 
 import threading
 import time
+from dataclasses import dataclass
 from pathlib import Path
 
+import numpy as np
 from imgui_bundle import imgui, ImVec2, ImVec4
 
 from .image_store import ImageStore
 from .stage import Stage
 from .viewport import Viewport
+
+
+@dataclass
+class PointResult:
+    photon_count: int = 0
+    error: str | None = None
+    microtimes: np.ndarray | None = None  # uint16, shape (N,)
 
 
 class App:
@@ -54,7 +63,16 @@ class App:
         self._seq_running: bool = False
         self._seq_idx: int = -1
         self._seq_thread: threading.Thread | None = None
-        self._point_results: dict[int, tuple[int, str | None]] = {}
+        self._point_results: dict[int, PointResult] = {}
+
+        # Scan ROI (pixels) — passed to core.set_roi before each acquisition
+        self._roi_x: int = 0
+        self._roi_y: int = 0
+        self._roi_w: int = 20
+        self._roi_h: int = 20
+
+        # Index of the point whose histogram is displayed (-1 = none)
+        self._hist_point_idx: int = -1
 
         # Imaging
         self._image_store = ImageStore()
@@ -182,6 +200,38 @@ class App:
             self._draw_points_tab()
             imgui.end_tab_item()
         imgui.end_tab_bar()
+
+    def _draw_histogram_panel(self) -> None:
+        HIST_H = 180.0
+        imgui.begin_child("##histpanel", ImVec2(-1, HIST_H), imgui.ChildFlags_.borders)
+
+        idx = self._hist_point_idx
+        with self._seq_lock:
+            results = dict(self._point_results)
+
+        if idx >= 0 and idx in results and results[idx].microtimes is not None:
+            mt = results[idx].microtimes
+            label = self._mark_points[idx][0] if idx < len(self._mark_points) else f"P{idx}"
+            self._section(
+                f"HISTOGRAM  {label}  ({len(mt):,} ph)", (0.9, 0.75, 0.4, 1.0)
+            )
+            try:
+                from imgui_bundle import implot
+
+                avail = imgui.get_content_region_avail()
+                if implot.begin_plot("##mt_hist", ImVec2(avail.x, avail.y - 2)):
+                    implot.setup_axes("microtime (ch)", "counts")
+                    implot.setup_axis_limits(
+                        implot.ImAxis_.x1, 0.0, 4095.0, implot.Cond_.always
+                    )
+                    implot.plot_histogram("##mt", mt.astype(np.float32), bins=256)
+                    implot.end_plot()
+            except Exception as exc:
+                imgui.text_colored(ImVec4(1.0, 0.4, 0.4, 1.0), f"implot: {exc}")
+        else:
+            imgui.text_disabled("No histogram — run acquisition or click Hist")
+
+        imgui.end_child()
 
     def _draw_stage_tab(self) -> None:
         backend = getattr(self.stage, "backend_name", "Simulated")
@@ -400,6 +450,7 @@ class App:
             self._mark_points.clear()
             with self._seq_lock:
                 self._point_results.clear()
+            self._hist_point_idx = -1
 
         # ---- ACQUISITION ----
         self._section("ACQUISITION", (0.9, 0.75, 0.4, 1.0))
@@ -424,6 +475,21 @@ class App:
         )
         imgui.same_line()
         imgui.text_disabled("dir")
+
+        col4 = (w - gap * 3) / 4
+        imgui.set_next_item_width(col4)
+        _, self._roi_x = imgui.input_int("##roix", self._roi_x)
+        imgui.same_line()
+        imgui.set_next_item_width(col4)
+        _, self._roi_y = imgui.input_int("##roiy", self._roi_y)
+        imgui.same_line()
+        imgui.set_next_item_width(col4)
+        _, self._roi_w = imgui.input_int("##roiw", self._roi_w)
+        imgui.same_line()
+        imgui.set_next_item_width(col4)
+        _, self._roi_h = imgui.input_int("##roih", self._roi_h)
+        imgui.same_line()
+        imgui.text_disabled("x y w h px")
 
         with self._seq_lock:
             running = self._seq_running
@@ -511,6 +577,8 @@ class App:
 
         imgui.separator()
 
+        self._draw_histogram_panel()
+
         # ---- Points list (takes remaining space) ----
         imgui.begin_child("##mplist", ImVec2(-1, -1), imgui.ChildFlags_.none)
         to_del = -1
@@ -531,15 +599,17 @@ class App:
             imgui.text_disabled(f"({pt[1]:.0f}, {pt[2]:.0f})")
             imgui.same_line()
             if i in results:
-                photons, err = results[i]
-                if err is None or err == "":
-                    imgui.text_colored(
-                        ImVec4(0.5, 1.0, 0.5, 1.0), f"{photons:,}"
-                    )
+                r = results[i]
+                if r.error is None:
+                    imgui.text_colored(ImVec4(0.5, 1.0, 0.5, 1.0), f"{r.photon_count:,}")
+                    if r.microtimes is not None:
+                        imgui.same_line()
+                        if imgui.small_button(f"Hist##{i}"):
+                            self._hist_point_idx = i
                 else:
                     imgui.text_colored(ImVec4(1.0, 0.4, 0.4, 1.0), "ERR")
                     if imgui.is_item_hovered():
-                        imgui.set_tooltip(err)
+                        imgui.set_tooltip(r.error)
             elif i == cur_idx:
                 imgui.text_colored(ImVec4(1.0, 0.85, 0.3, 1.0), "acq…")
             else:
@@ -554,6 +624,10 @@ class App:
                     for k, v in self._point_results.items()
                     if k != to_del
                 }
+            if self._hist_point_idx == to_del:
+                self._hist_point_idx = -1
+            elif self._hist_point_idx > to_del:
+                self._hist_point_idx -= 1
         imgui.end_child()
 
     # ------------------------------------------------------------------
@@ -598,13 +672,27 @@ class App:
 
             safe = label.replace("/", "_").replace("\\", "_")
             out = Path(self._output_folder) / f"{safe}_x{x:.0f}_y{y:.0f}.spc"
+            core = getattr(self.stage, "core", None)
+            roi = (self._roi_x, self._roi_y, self._roi_w, self._roi_h)
 
-            photons, err = self._spc.acquire(
-                self._dwell_s, out, self._make_pre_hook(), self._seq_stop_event
+            photons, microtimes, err = self._spc.acquire_microtimes(
+                self._dwell_s,
+                out,
+                core=core,
+                roi=roi,
+                pre_hook=self._make_pre_hook(),
+                stop_event=self._seq_stop_event,
             )
 
             with self._seq_lock:
-                self._point_results[i] = (photons, err)
+                self._point_results[i] = PointResult(
+                    photon_count=photons,
+                    error=err,
+                    microtimes=microtimes,
+                )
+
+            if microtimes is not None and err is None:
+                self._hist_point_idx = i
 
         with self._seq_lock:
             self._seq_running = False
