@@ -9,7 +9,8 @@ wheels/
 # Virtual environments
 .venv
 
-*.ini
+#*.ini
+Stage_Navigator__*_.ini
 *.ipynb_checkpoints
 
 *.spc
