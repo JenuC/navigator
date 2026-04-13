@@ -57,6 +57,12 @@ class App:
         self._hook_prop_buf: str = ""
         self._hook_val_buf: str = ""
 
+        # MM post-hook: applied after each acquisition completes
+        self._mm_post_hook_rows: list[list[str]] = []
+        self._post_hook_dev_buf: str = ""
+        self._post_hook_prop_buf: str = ""
+        self._post_hook_val_buf: str = ""
+
         # Sequence state (guarded by _seq_lock)
         self._seq_lock = threading.Lock()
         self._seq_stop_event = threading.Event()
@@ -65,11 +71,15 @@ class App:
         self._seq_thread: threading.Thread | None = None
         self._point_results: dict[int, PointResult] = {}
 
-        # Scan ROI (pixels) — passed to core.set_roi before each acquisition
-        self._roi_x: int = 0
-        self._roi_y: int = 0
-        self._roi_w: int = 20
-        self._roi_h: int = 20
+        # Histogram acquisition state (guarded by _seq_lock)
+        self._hist_running: bool = False
+        self._hist_running_idx: int = -1
+        self._hist_thread: threading.Thread | None = None
+
+        # Scan ROI object size (pixels) — offset computed as fov - object_size at acquisition time
+        self._roi_w: int = 50
+        self._roi_h: int = 50
+        self._fermat_spiral: bool = True
 
         # Index of the point whose histogram is displayed (-1 = none)
         self._hist_point_idx: int = -1
@@ -459,6 +469,8 @@ class App:
         _, self._dwell_s = imgui.input_float(
             "##dwell", self._dwell_s, 0.0, 0.0, "%.1f s"
         )
+        if imgui.is_item_hovered():
+            imgui.set_tooltip("Dwell time: acquisition duration per point (seconds)")
         imgui.same_line()
         imgui.text("dwell")
         imgui.same_line(spacing=16)
@@ -466,6 +478,8 @@ class App:
         _, self._settle_s = imgui.input_float(
             "##settle", self._settle_s, 0.0, 0.0, "%.1f s"
         )
+        if imgui.is_item_hovered():
+            imgui.set_tooltip("Settle time: wait after moving to each point before acquisition starts (seconds)")
         imgui.same_line()
         imgui.text("settle")
 
@@ -473,23 +487,26 @@ class App:
         _, self._output_folder = imgui.input_text(
             "##folder", self._output_folder, 512
         )
+        if imgui.is_item_hovered():
+            imgui.set_tooltip("Output directory — .spc (raw FIFO) and .npz (microtimes) files saved here")
         imgui.same_line()
         imgui.text_disabled("dir")
 
-        col4 = (w - gap * 3) / 4
-        imgui.set_next_item_width(col4)
-        _, self._roi_x = imgui.input_int("##roix", self._roi_x)
-        imgui.same_line()
-        imgui.set_next_item_width(col4)
-        _, self._roi_y = imgui.input_int("##roiy", self._roi_y)
-        imgui.same_line()
-        imgui.set_next_item_width(col4)
+        col2 = (w - gap) / 2
+        imgui.set_next_item_width(col2)
         _, self._roi_w = imgui.input_int("##roiw", self._roi_w)
+        if imgui.is_item_hovered():
+            imgui.set_tooltip("Object size: scan ROI width (pixels); offset = FOV − size (bottom-right)")
         imgui.same_line()
-        imgui.set_next_item_width(col4)
+        imgui.set_next_item_width(col2)
         _, self._roi_h = imgui.input_int("##roih", self._roi_h)
+        if imgui.is_item_hovered():
+            imgui.set_tooltip("Object size: scan ROI height (pixels); offset = FOV − size (bottom-right)")
         imgui.same_line()
-        imgui.text_disabled("x y w h px")
+        imgui.text_disabled("w h px")
+        _, self._fermat_spiral = imgui.checkbox("Fermat Spiral Scan", self._fermat_spiral)
+        if imgui.is_item_hovered():
+            imgui.set_tooltip("Enable OSc-LSM Fermat Spiral Scan during histogram acquisition")
 
         with self._seq_lock:
             running = self._seq_running
@@ -575,6 +592,49 @@ class App:
             del self._mm_hook_rows[hdel]
         imgui.end_child()
 
+        # ---- MM POST HOOK ----
+        self._section("MM POST HOOK", (0.7, 0.5, 1.0, 1.0))
+        imgui.text_disabled("Applied to pycromanager after each acquisition:")
+
+        imgui.set_next_item_width(col_w)
+        _, self._post_hook_dev_buf = imgui.input_text(
+            "##phdev", self._post_hook_dev_buf, 64
+        )
+        imgui.same_line()
+        imgui.set_next_item_width(col_w)
+        _, self._post_hook_prop_buf = imgui.input_text(
+            "##phprop", self._post_hook_prop_buf, 64
+        )
+        imgui.same_line()
+        imgui.set_next_item_width(col_w - 26 - gap)
+        _, self._post_hook_val_buf = imgui.input_text(
+            "##phval", self._post_hook_val_buf, 64
+        )
+        imgui.same_line()
+        if imgui.button("+##phadd", ImVec2(-1, 0)) and self._post_hook_dev_buf.strip():
+            self._mm_post_hook_rows.append([
+                self._post_hook_dev_buf.strip(),
+                self._post_hook_prop_buf.strip(),
+                self._post_hook_val_buf.strip(),
+            ])
+            self._post_hook_dev_buf = self._post_hook_prop_buf = self._post_hook_val_buf = ""
+
+        post_hook_h = max(min(len(self._mm_post_hook_rows) * 20 + 6, 80), 24)
+        imgui.begin_child(
+            "##posthookrows", ImVec2(-1, post_hook_h), imgui.ChildFlags_.borders
+        )
+        phdel = -1
+        for hi, row in enumerate(self._mm_post_hook_rows):
+            imgui.push_id(hi)
+            if imgui.small_button("X##phdel"):
+                phdel = hi
+            imgui.same_line()
+            imgui.text(f"{row[0]}  |  {row[1]}  =  {row[2]}")
+            imgui.pop_id()
+        if phdel >= 0:
+            del self._mm_post_hook_rows[phdel]
+        imgui.end_child()
+
         imgui.separator()
 
         self._draw_histogram_panel()
@@ -585,6 +645,8 @@ class App:
         with self._seq_lock:
             results = dict(self._point_results)
             cur_idx = self._seq_idx
+            hist_running = self._hist_running
+            hist_running_idx = self._hist_running_idx
 
         for i, pt in enumerate(self._mark_points):
             imgui.push_id(i)
@@ -602,10 +664,31 @@ class App:
                 r = results[i]
                 if r.error is None:
                     imgui.text_colored(ImVec4(0.5, 1.0, 0.5, 1.0), f"{r.photon_count:,}")
-                    if r.microtimes is not None:
-                        imgui.same_line()
-                        if imgui.small_button(f"Hist##{i}"):
-                            self._hist_point_idx = i
+                    imgui.same_line()
+                    if hist_running_idx == i:
+                        imgui.text_colored(ImVec4(1.0, 0.85, 0.3, 1.0), "hist…")
+                    else:
+                        can_hist = not running and not hist_running and self._spc is not None
+                        if not can_hist:
+                            imgui.begin_disabled()
+                        btn_label = "Hist*" if r.microtimes is not None else "Hist"
+                        if imgui.small_button(f"{btn_label}##{i}"):
+                            if r.microtimes is not None:
+                                # data already exists — just show it
+                                self._hist_point_idx = i
+                            else:
+                                with self._seq_lock:
+                                    self._hist_running = True
+                                    self._hist_running_idx = i
+                                self._hist_thread = threading.Thread(
+                                    target=self._run_hist_acq, args=(i,), daemon=True
+                                )
+                                self._hist_thread.start()
+                        if imgui.is_item_hovered():
+                            tip = "Show histogram" if r.microtimes is not None else "Acquire microtimes at this point"
+                            imgui.set_tooltip(tip)
+                        if not can_hist:
+                            imgui.end_disabled()
                 else:
                     imgui.text_colored(ImVec4(1.0, 0.4, 0.4, 1.0), "ERR")
                     if imgui.is_item_hovered():
@@ -624,6 +707,10 @@ class App:
                     for k, v in self._point_results.items()
                     if k != to_del
                 }
+                if self._hist_running_idx == to_del:
+                    self._hist_running_idx = -1
+                elif self._hist_running_idx > to_del:
+                    self._hist_running_idx -= 1
             if self._hist_point_idx == to_del:
                 self._hist_point_idx = -1
             elif self._hist_point_idx > to_del:
@@ -634,10 +721,69 @@ class App:
     # Sequence helpers
     # ------------------------------------------------------------------
 
+    def _run_hist_acq(self, idx: int) -> None:
+        """Background thread: move to point idx, acquire microtimes, update result."""
+        try:
+            pt = self._mark_points[idx]
+        except IndexError:
+            with self._seq_lock:
+                self._hist_running = False
+                self._hist_running_idx = -1
+            return
+
+        label, x, y = pt[0], pt[1], pt[2]
+        self.stage.move_to(x, y)
+
+        settle_end = time.monotonic() + self._settle_s
+        while time.monotonic() < settle_end:
+            time.sleep(0.05)
+
+        safe = label.replace("/", "_").replace("\\", "_")
+        out = Path(self._output_folder) / f"{safe}_x{x:.0f}_y{y:.0f}.spc"
+        core = getattr(self.stage, "core", None)
+        if core is not None:
+            fov = core.get_roi()
+            roi = (fov.width - self._roi_w, fov.height - self._roi_h, self._roi_w, self._roi_h)
+        else:
+            roi = (0, 0, self._roi_w, self._roi_h)
+
+        photons, microtimes, err = self._spc.acquire_microtimes(
+            self._dwell_s, out, core=core, roi=roi,
+            fermat_spiral=self._fermat_spiral,
+            pre_hook=self._make_pre_hook(),
+            post_hook=self._make_post_hook(),
+        )
+
+        with self._seq_lock:
+            existing = self._point_results.get(idx, PointResult())
+            self._point_results[idx] = PointResult(
+                photon_count=photons,
+                error=err,
+                microtimes=microtimes,
+            )
+            self._hist_running = False
+            self._hist_running_idx = -1
+
+        if microtimes is not None and err is None:
+            self._hist_point_idx = idx
+
     def _make_pre_hook(self):
-        """Return a callable that applies all MM hook rows, or None."""
+        """Return a callable that applies all MM pre-hook rows, or None."""
         core = getattr(self.stage, "core", None)
         rows = [list(r) for r in self._mm_hook_rows if r[0] and r[1]]
+        if not rows or core is None:
+            return None
+
+        def hook():
+            for device, prop, value in rows:
+                core.set_property(device, prop, value)
+
+        return hook
+
+    def _make_post_hook(self):
+        """Return a callable that applies all MM post-hook rows, or None."""
+        core = getattr(self.stage, "core", None)
+        rows = [list(r) for r in self._mm_post_hook_rows if r[0] and r[1]]
         if not rows or core is None:
             return None
 
@@ -672,15 +818,12 @@ class App:
 
             safe = label.replace("/", "_").replace("\\", "_")
             out = Path(self._output_folder) / f"{safe}_x{x:.0f}_y{y:.0f}.spc"
-            core = getattr(self.stage, "core", None)
-            roi = (self._roi_x, self._roi_y, self._roi_w, self._roi_h)
 
-            photons, microtimes, err = self._spc.acquire_microtimes(
+            photons, err = self._spc.acquire(
                 self._dwell_s,
                 out,
-                core=core,
-                roi=roi,
                 pre_hook=self._make_pre_hook(),
+                post_hook=self._make_post_hook(),
                 stop_event=self._seq_stop_event,
             )
 
@@ -688,11 +831,7 @@ class App:
                 self._point_results[i] = PointResult(
                     photon_count=photons,
                     error=err,
-                    microtimes=microtimes,
                 )
-
-            if microtimes is not None and err is None:
-                self._hist_point_idx = i
 
         with self._seq_lock:
             self._seq_running = False

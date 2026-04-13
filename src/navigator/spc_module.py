@@ -96,6 +96,7 @@ class SPCModule:
         duration: float,
         output_path: str | Path,
         pre_hook: Optional[Callable] = None,
+        post_hook: Optional[Callable] = None,
         stop_event: Optional[threading.Event] = None,
     ) -> tuple[int, Optional[str]]:
         """
@@ -103,6 +104,9 @@ class SPCModule:
 
         pre_hook() is called just before start_measurement — use it to set
         pycromanager device properties, open shutters, etc.
+
+        post_hook() is called after data is saved and photon count is computed,
+        only on success (not on error or user stop).
 
         stop_event: if set mid-acquisition, measurement is stopped immediately
         and (0, "Stopped by user") is returned.
@@ -166,6 +170,9 @@ class SPCModule:
                 self._photon_count = photons
                 self._elapsed = duration
 
+            if post_hook is not None:
+                post_hook()
+
             return photons, None
 
         except Exception as exc:
@@ -183,7 +190,9 @@ class SPCModule:
         output_path: str | Path,
         core=None,
         roi: tuple[int, int, int, int] = (0, 0, 20, 20),
+        fermat_spiral: bool = False,
         pre_hook: Optional[Callable] = None,
+        post_hook: Optional[Callable] = None,
         stop_event: Optional[threading.Event] = None,
     ) -> tuple[int, Optional[np.ndarray], Optional[str]]:
         """
@@ -192,6 +201,9 @@ class SPCModule:
         If *core* (pycromanager Core) is provided, sets the camera ROI and
         runs a continuous sequence acquisition around the FLIM measurement so
         the scanner is active during collection.
+
+        pre_hook() fires just before spcm.start_measurement().
+        post_hook() fires after data is saved, only on success.
 
         Writes two output files:
           - output_path          — raw uint16 FIFO words (.spc)
@@ -207,11 +219,19 @@ class SPCModule:
             self._last_error = ""
 
         scan_started = False
+        fermat_enabled = False
+        orig_roi = None
         try:
             if pre_hook is not None:
                 pre_hook()
 
             if core is not None:
+                if core.is_sequence_running():
+                    core.stop_sequence_acquisition()
+                orig_roi = core.get_roi()
+                if fermat_spiral:
+                    core.set_property("OSc-LSM", "Dev1-Fermat Spiral Scan", "Yes")
+                    fermat_enabled = True
                 core.set_roi(*roi)
                 core.start_continuous_sequence_acquisition(0)
                 scan_started = True
@@ -285,6 +305,9 @@ class SPCModule:
                 self._photon_count = photons
                 self._elapsed = duration
 
+            if post_hook is not None:
+                post_hook()
+
             return photons, microtimes, None
 
         except Exception as exc:
@@ -296,6 +319,16 @@ class SPCModule:
             if scan_started:
                 try:
                     core.stop_sequence_acquisition()
+                except Exception:
+                    pass
+            if fermat_enabled:
+                try:
+                    core.set_property("OSc-LSM", "Dev1-Fermat Spiral Scan", "No")
+                except Exception:
+                    pass
+            if orig_roi is not None:
+                try:
+                    core.set_roi(orig_roi.x, orig_roi.y, orig_roi.width, orig_roi.height)
                 except Exception:
                     pass
             with self._lock:
