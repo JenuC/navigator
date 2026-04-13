@@ -26,6 +26,7 @@ BH SPC-180NX photon counting
 from __future__ import annotations
 
 import argparse
+import logging
 import sys
 from pathlib import Path
 
@@ -75,6 +76,12 @@ def _build_arg_parser() -> argparse.ArgumentParser:
             "Path to a SPCM .ini file for SPC-180NX initialisation "
             "(e.g. spcm_SLIM.ini); if omitted, a minimal default is used"
         ),
+    )
+    p.add_argument(
+        "--debug",
+        action="store_true",
+        default=False,
+        help="Enable DEBUG-level logging for all navigator modules",
     )
     return p
 
@@ -154,6 +161,24 @@ def _connect_spc(args: argparse.Namespace):
 
 def main() -> None:
     args = _build_arg_parser().parse_args()
+
+    import datetime
+    log_level = logging.DEBUG if args.debug else logging.WARNING
+    log_fmt = "%(asctime)s.%(msecs)03d [%(name)s] %(levelname)s: %(message)s"
+    log_dir = Path("logs")
+    log_dir.mkdir(exist_ok=True)
+    ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_file = log_dir / f"navigator_{ts}.log"
+    logging.basicConfig(
+        level=log_level,
+        format=log_fmt,
+        datefmt="%H:%M:%S",
+        filename=log_file,
+        filemode="w",
+        force=True,
+    )
+    if args.debug:
+        print(f"[navigator] logging to {log_file.resolve()}", flush=True)
 
     stage = _connect_hardware(args) if args.hardware else None
     spc = _connect_spc(args) if (args.spc or args.spc_sim) else None

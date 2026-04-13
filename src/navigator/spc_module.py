@@ -7,12 +7,15 @@ Install pybhspc before use:
 from __future__ import annotations
 
 import array
+import logging
 import threading
 import time
 from pathlib import Path
 from typing import Callable, Optional
 
 import numpy as np
+
+log = logging.getLogger(__name__)
 
 
 class SPCModule:
@@ -225,16 +228,23 @@ class SPCModule:
             if pre_hook is not None:
                 pre_hook()
 
+            log.debug("acquire_microtimes: core=%r  roi=%s  fermat_spiral=%s", core, roi, fermat_spiral)
             if core is not None:
                 if core.is_sequence_running():
+                    log.debug("stopping already-running scanner")
                     core.stop_sequence_acquisition()
                 orig_roi = core.get_roi()
+                log.debug("orig_roi=(%s,%s,%s,%s)", orig_roi.x, orig_roi.y, orig_roi.width, orig_roi.height)
                 if fermat_spiral:
+                    log.debug("enabling Fermat Spiral Scan")
                     core.set_property("OSc-LSM", "Dev1-Fermat Spiral Scan", "Yes")
                     fermat_enabled = True
+                log.debug("set_roi%s", roi)
                 core.set_roi(*roi)
+                log.debug("starting scanner (start_continuous_sequence_acquisition)")
                 core.start_continuous_sequence_acquisition(0)
                 scan_started = True
+                log.debug("scanner started")
 
             chunks: list[array.array] = []
             self._spcm.start_measurement(self._mod_no)
@@ -291,6 +301,14 @@ class SPCModule:
                     mt=microtimes,
                     ph=photon_records,
                 )
+                counts, edges = np.histogram(microtimes, bins=256, range=(0, 4095))
+                centers = ((edges[:-1] + edges[1:]) / 2).astype(int)
+                csv_path = output_path.with_suffix(".csv")
+                with open(csv_path, "w") as f:
+                    f.write("bin_center,count\n")
+                    for c, n in zip(centers, counts):
+                        f.write(f"{c},{n}\n")
+                log.debug("%d photons — histogram CSV: %s", photons, csv_path)
             else:
                 photons = 0
                 microtimes = np.array([], dtype=np.uint16)
@@ -300,6 +318,7 @@ class SPCModule:
                     mt=microtimes,
                     ph=np.array([], dtype=np.uint32),
                 )
+                log.debug("0 photons — no FIFO chunks received")
 
             with self._lock:
                 self._photon_count = photons
@@ -312,6 +331,7 @@ class SPCModule:
 
         except Exception as exc:
             err = str(exc)
+            log.error("acquire_microtimes failed: %s", err, exc_info=True)
             with self._lock:
                 self._last_error = err
             return 0, None, err

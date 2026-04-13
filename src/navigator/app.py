@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from dataclasses import dataclass
@@ -9,6 +10,8 @@ from pathlib import Path
 
 import numpy as np
 from imgui_bundle import imgui, ImVec2, ImVec4
+
+log = logging.getLogger(__name__)
 
 from .image_store import ImageStore
 from .stage import Stage
@@ -732,6 +735,7 @@ class App:
             return
 
         label, x, y = pt[0], pt[1], pt[2]
+        log.debug("hist acq [%s]: moving to (%.1f, %.1f)", label, x, y)
         self.stage.move_to(x, y)
 
         settle_end = time.monotonic() + self._settle_s
@@ -741,11 +745,15 @@ class App:
         safe = label.replace("/", "_").replace("\\", "_")
         out = Path(self._output_folder) / f"{safe}_x{x:.0f}_y{y:.0f}.spc"
         core = getattr(self.stage, "core", None)
+        log.debug("hist acq [%s]: core=%r", label, core)
         if core is not None:
             fov = core.get_roi()
             roi = (fov.width - self._roi_w, fov.height - self._roi_h, self._roi_w, self._roi_h)
+            log.debug("hist acq [%s]: fov=(%s,%s,%s,%s)  scan roi=%s", label, fov.x, fov.y, fov.width, fov.height, roi)
         else:
             roi = (0, 0, self._roi_w, self._roi_h)
+            log.debug("hist acq [%s]: no core — using fallback roi=%s", label, roi)
+        log.debug("hist acq [%s]: dwell=%.1fs  fermat=%s  output=%s", label, self._dwell_s, self._fermat_spiral, out)
 
         photons, microtimes, err = self._spc.acquire_microtimes(
             self._dwell_s, out, core=core, roi=roi,
@@ -754,8 +762,8 @@ class App:
             post_hook=self._make_post_hook(),
         )
 
+        log.debug("hist acq [%s]: done — photons=%d  err=%r", label, photons, err)
         with self._seq_lock:
-            existing = self._point_results.get(idx, PointResult())
             self._point_results[idx] = PointResult(
                 photon_count=photons,
                 error=err,
