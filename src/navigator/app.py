@@ -54,18 +54,6 @@ class App:
         self._settle_s: float = 1.0
         self._output_folder: str = str(Path.cwd() / "data")
 
-        # MM hook: list of [device, property, value] rows applied before each acquisition
-        self._mm_hook_rows: list[list[str]] = []
-        self._hook_dev_buf: str = ""
-        self._hook_prop_buf: str = ""
-        self._hook_val_buf: str = ""
-
-        # MM post-hook: applied after each acquisition completes
-        self._mm_post_hook_rows: list[list[str]] = []
-        self._post_hook_dev_buf: str = ""
-        self._post_hook_prop_buf: str = ""
-        self._post_hook_val_buf: str = ""
-
         # Sequence state (guarded by _seq_lock)
         self._seq_lock = threading.Lock()
         self._seq_stop_event = threading.Event()
@@ -79,10 +67,8 @@ class App:
         self._hist_running_idx: int = -1
         self._hist_thread: threading.Thread | None = None
 
-        # Scan ROI object size (pixels) — offset computed as fov - object_size at acquisition time
-        self._roi_w: int = 50
-        self._roi_h: int = 50
-        self._fermat_spiral: bool = True
+        # Object size for Fermat spiral scan ROI (pixels square)
+        self._object_size: int = 50
 
         # Index of the point whose histogram is displayed (-1 = none)
         self._hist_point_idx: int = -1
@@ -495,21 +481,12 @@ class App:
         imgui.same_line()
         imgui.text_disabled("dir")
 
-        col2 = (w - gap) / 2
-        imgui.set_next_item_width(col2)
-        _, self._roi_w = imgui.input_int("##roiw", self._roi_w)
+        imgui.set_next_item_width(80)
+        _, self._object_size = imgui.input_int("##objsize", self._object_size)
         if imgui.is_item_hovered():
-            imgui.set_tooltip("Object size: scan ROI width (pixels); offset = FOV − size (bottom-right)")
+            imgui.set_tooltip("Object size (px): Fermat spiral ROI = (FOV-obj, FOV-obj, obj, obj)")
         imgui.same_line()
-        imgui.set_next_item_width(col2)
-        _, self._roi_h = imgui.input_int("##roih", self._roi_h)
-        if imgui.is_item_hovered():
-            imgui.set_tooltip("Object size: scan ROI height (pixels); offset = FOV − size (bottom-right)")
-        imgui.same_line()
-        imgui.text_disabled("w h px")
-        _, self._fermat_spiral = imgui.checkbox("Fermat Spiral Scan", self._fermat_spiral)
-        if imgui.is_item_hovered():
-            imgui.set_tooltip("Enable OSc-LSM Fermat Spiral Scan during histogram acquisition")
+        imgui.text_disabled("obj px")
 
         with self._seq_lock:
             running = self._seq_running
@@ -550,93 +527,6 @@ class App:
             imgui.text_colored(
                 ImVec4(0.5, 0.5, 0.5, 1.0), "No SPC  (use --spc or --spc-sim)"
             )
-
-        # ---- MM HOOK ----
-        self._section("MM HOOK", (0.7, 0.5, 1.0, 1.0))
-        imgui.text_disabled("Applied to pycromanager before each acquisition:")
-
-        col_w = (w - gap * 3) / 3
-        imgui.set_next_item_width(col_w)
-        _, self._hook_dev_buf = imgui.input_text(
-            "##hdev", self._hook_dev_buf, 64
-        )
-        imgui.same_line()
-        imgui.set_next_item_width(col_w)
-        _, self._hook_prop_buf = imgui.input_text(
-            "##hprop", self._hook_prop_buf, 64
-        )
-        imgui.same_line()
-        imgui.set_next_item_width(col_w - 26 - gap)
-        _, self._hook_val_buf = imgui.input_text(
-            "##hval", self._hook_val_buf, 64
-        )
-        imgui.same_line()
-        if imgui.button("+##hadd", ImVec2(-1, 0)) and self._hook_dev_buf.strip():
-            self._mm_hook_rows.append([
-                self._hook_dev_buf.strip(),
-                self._hook_prop_buf.strip(),
-                self._hook_val_buf.strip(),
-            ])
-            self._hook_dev_buf = self._hook_prop_buf = self._hook_val_buf = ""
-
-        hook_h = max(min(len(self._mm_hook_rows) * 20 + 6, 80), 24)
-        imgui.begin_child(
-            "##hookrows", ImVec2(-1, hook_h), imgui.ChildFlags_.borders
-        )
-        hdel = -1
-        for hi, row in enumerate(self._mm_hook_rows):
-            imgui.push_id(hi)
-            if imgui.small_button("X##hdel"):
-                hdel = hi
-            imgui.same_line()
-            imgui.text(f"{row[0]}  |  {row[1]}  =  {row[2]}")
-            imgui.pop_id()
-        if hdel >= 0:
-            del self._mm_hook_rows[hdel]
-        imgui.end_child()
-
-        # ---- MM POST HOOK ----
-        self._section("MM POST HOOK", (0.7, 0.5, 1.0, 1.0))
-        imgui.text_disabled("Applied to pycromanager after each acquisition:")
-
-        imgui.set_next_item_width(col_w)
-        _, self._post_hook_dev_buf = imgui.input_text(
-            "##phdev", self._post_hook_dev_buf, 64
-        )
-        imgui.same_line()
-        imgui.set_next_item_width(col_w)
-        _, self._post_hook_prop_buf = imgui.input_text(
-            "##phprop", self._post_hook_prop_buf, 64
-        )
-        imgui.same_line()
-        imgui.set_next_item_width(col_w - 26 - gap)
-        _, self._post_hook_val_buf = imgui.input_text(
-            "##phval", self._post_hook_val_buf, 64
-        )
-        imgui.same_line()
-        if imgui.button("+##phadd", ImVec2(-1, 0)) and self._post_hook_dev_buf.strip():
-            self._mm_post_hook_rows.append([
-                self._post_hook_dev_buf.strip(),
-                self._post_hook_prop_buf.strip(),
-                self._post_hook_val_buf.strip(),
-            ])
-            self._post_hook_dev_buf = self._post_hook_prop_buf = self._post_hook_val_buf = ""
-
-        post_hook_h = max(min(len(self._mm_post_hook_rows) * 20 + 6, 80), 24)
-        imgui.begin_child(
-            "##posthookrows", ImVec2(-1, post_hook_h), imgui.ChildFlags_.borders
-        )
-        phdel = -1
-        for hi, row in enumerate(self._mm_post_hook_rows):
-            imgui.push_id(hi)
-            if imgui.small_button("X##phdel"):
-                phdel = hi
-            imgui.same_line()
-            imgui.text(f"{row[0]}  |  {row[1]}  =  {row[2]}")
-            imgui.pop_id()
-        if phdel >= 0:
-            del self._mm_post_hook_rows[phdel]
-        imgui.end_child()
 
         imgui.separator()
 
@@ -745,23 +635,18 @@ class App:
         safe = label.replace("/", "_").replace("\\", "_")
         out = Path(self._output_folder) / f"{safe}_x{x:.0f}_y{y:.0f}.spc"
         core = getattr(self.stage, "core", None)
-        log.debug("hist acq [%s]: core=%r", label, core)
-        if core is not None:
-            fov = core.get_roi()
-            roi = (fov.width - self._roi_w, fov.height - self._roi_h, self._roi_w, self._roi_h)
-            log.debug("hist acq [%s]: fov=(%s,%s,%s,%s)  scan roi=%s", label, fov.x, fov.y, fov.width, fov.height, roi)
-        else:
-            roi = (0, 0, self._roi_w, self._roi_h)
-            log.debug("hist acq [%s]: no core — using fallback roi=%s", label, roi)
-        log.debug("hist acq [%s]: dwell=%.1fs  fermat=%s  output=%s", label, self._dwell_s, self._fermat_spiral, out)
+        mod_no = getattr(self._spc, "_mod_no", 0)
+        log.debug("hist acq [%s]: core=%r  mod_no=%d  dwell=%.1fs  obj=%dpx  out=%s",
+                  label, core, mod_no, self._dwell_s, self._object_size, out)
 
-        photons, microtimes, err = self._spc.acquire_microtimes(
-            self._dwell_s, out, core=core, roi=roi,
-            fermat_spiral=self._fermat_spiral,
-            pre_hook=self._make_pre_hook(),
-            post_hook=self._make_post_hook(),
+        from . import flim_acquire
+        mt, ph, err = flim_acquire.acquire_point(
+            core, self._dwell_s, out,
+            object_size=self._object_size,
+            mod_no=mod_no,
         )
-
+        photons = int(len(ph))
+        microtimes = mt if err is None else None
         log.debug("hist acq [%s]: done — photons=%d  err=%r", label, photons, err)
         with self._seq_lock:
             self._point_results[idx] = PointResult(
@@ -774,32 +659,6 @@ class App:
 
         if microtimes is not None and err is None:
             self._hist_point_idx = idx
-
-    def _make_pre_hook(self):
-        """Return a callable that applies all MM pre-hook rows, or None."""
-        core = getattr(self.stage, "core", None)
-        rows = [list(r) for r in self._mm_hook_rows if r[0] and r[1]]
-        if not rows or core is None:
-            return None
-
-        def hook():
-            for device, prop, value in rows:
-                core.set_property(device, prop, value)
-
-        return hook
-
-    def _make_post_hook(self):
-        """Return a callable that applies all MM post-hook rows, or None."""
-        core = getattr(self.stage, "core", None)
-        rows = [list(r) for r in self._mm_post_hook_rows if r[0] and r[1]]
-        if not rows or core is None:
-            return None
-
-        def hook():
-            for device, prop, value in rows:
-                core.set_property(device, prop, value)
-
-        return hook
 
     def _run_sequence(self) -> None:
         """Background thread: move → settle → acquire at each marked point."""
@@ -830,8 +689,6 @@ class App:
             photons, err = self._spc.acquire(
                 self._dwell_s,
                 out,
-                pre_hook=self._make_pre_hook(),
-                post_hook=self._make_post_hook(),
                 stop_event=self._seq_stop_event,
             )
 
