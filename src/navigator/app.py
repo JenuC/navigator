@@ -635,13 +635,14 @@ class App:
         safe = label.replace("/", "_").replace("\\", "_")
         out = Path(self._output_folder) / f"{safe}_x{x:.0f}_y{y:.0f}.spc"
         core = getattr(self.stage, "core", None)
+        spcm = getattr(self._spc, "_spcm", None)
         mod_no = getattr(self._spc, "_mod_no", 0)
-        log.debug("hist acq [%s]: core=%r  mod_no=%d  dwell=%.1fs  obj=%dpx  out=%s",
-                  label, core, mod_no, self._dwell_s, self._object_size, out)
+        log.debug("hist acq [%s]: core=%r  spcm=%r  mod_no=%d  dwell=%.1fs  obj=%dpx  out=%s",
+                  label, core, spcm, mod_no, self._dwell_s, self._object_size, out)
 
         from . import flim_acquire
         mt, ph, err = flim_acquire.acquire_point(
-            core, self._dwell_s, out,
+            core, spcm, self._dwell_s, out,
             object_size=self._object_size,
             mod_no=mod_no,
         )
