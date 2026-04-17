@@ -66,6 +66,29 @@ class SPCModule:
         params.stop_on_time = 0
         spcm.set_parameters(mod_no, params)
 
+        log.info(
+            "SPC-180NX mod %d: simulate=%s  ini=%s",
+            mod_no, simulate, ini_path,
+        )
+        log.debug(
+            "SPC-180NX mod %d parameters: "
+            "mode=%s  tac_range=%.3g s  tac_gain=%s  tac_offset=%s  "
+            "cfd_limit_low=%s mV  cfd_zc_level=%s mV  "
+            "sync_threshold=%s mV  sync_zc_level=%s mV  "
+            "collect_time=%.3g s  stop_on_time=%s",
+            mod_no,
+            params.mode,
+            params.tac_range,
+            params.tac_gain,
+            params.tac_offset,
+            params.cfd_limit_low,
+            params.cfd_zc_level,
+            params.sync_threshold,
+            params.sync_zc_level,
+            params.collect_time,
+            params.stop_on_time,
+        )
+
     # ------------------------------------------------------------------
     # Thread-safe status
     # ------------------------------------------------------------------

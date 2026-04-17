@@ -21,12 +21,15 @@ Connection flow
 
 from __future__ import annotations
 
+import logging
 import math
 import sys
 import threading
 import time
 from pathlib import Path
 from typing import Optional
+
+log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Make the submodule importable (navigator/microscope_control/)
@@ -149,6 +152,28 @@ class PycroStage:
         self.waypoints: list[Waypoint] = []
         self.history: list[tuple[float, float]] = [(ix, iy)]
         self.max_history = 500
+
+        # ---- Log MM2 details ----
+        try:
+            version = core.get_version_info()
+            log.info("MM2 version: %s", version)
+        except Exception:
+            pass
+        try:
+            xy_dev = core.get_xy_stage_device()
+            z_dev = core.get_focus_device()
+            cam_dev = core.get_camera_device()
+            log.info(
+                "MM2 devices — XY stage: %r  focus: %r  camera: %r",
+                xy_dev, z_dev, cam_dev,
+            )
+        except Exception:
+            pass
+        try:
+            devices = list(core.get_loaded_devices())
+            log.debug("MM2 loaded devices (%d): %s", len(devices), ", ".join(devices))
+        except Exception:
+            pass
 
         # ---- Start polling ----
         self._thread = threading.Thread(target=self._poll_loop, daemon=True)
@@ -286,7 +311,7 @@ class PycroStage:
             if z is not None:
                 self._hw.move_z_no_wait(z)
         except Exception as exc:
-            print(f"[PycroStage] move error: {exc}", flush=True)
+            log.error("move error: %s", exc)
 
     def shutdown(self) -> None:
         """Signal the poll thread to stop and wait for it to exit."""
@@ -318,7 +343,7 @@ class PycroStage:
             except Exception as exc:
                 with self._lock:
                     self._last_poll_ok = False
-                print(f"[PycroStage] poll error: {exc}", flush=True)
+                log.warning("poll error: %s", exc)
                 time.sleep(1.0)   # back off on repeated errors
                 continue
 

@@ -34,6 +34,8 @@ from imgui_bundle import immapp
 
 from .app import App
 
+log = logging.getLogger(__name__)
+
 
 def _build_arg_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
@@ -99,31 +101,30 @@ def _connect_hardware(args: argparse.Namespace):
     try:
         from pycromanager import Core
     except ImportError:
-        print(
-            "[navigator] pycromanager is not installed.\n"
+        log.error(
+            "pycromanager is not installed.\n"
             "  Run:  uv pip install -e \".[hardware]\"\n"
-            "  then try again.",
-            file=sys.stderr,
+            "  then try again."
         )
         sys.exit(1)
 
     settings = _load_settings(args.mm_settings)
 
-    print("[navigator] Connecting to Micro-Manager 2 …", flush=True)
+    log.info("Connecting to Micro-Manager 2 …")
     try:
         core = Core()
     except Exception as exc:
-        print(
-            f"[navigator] Failed to connect to MM2: {exc}\n"
+        log.error(
+            "Failed to connect to MM2: %s\n"
             "  Is Micro-Manager 2 running with the Python bridge enabled?",
-            file=sys.stderr,
+            exc,
         )
         sys.exit(1)
 
     from .pycro_stage import PycroStage
     stage = PycroStage(core, settings)
     x, y, z = stage.position
-    print(f"[navigator] Connected.  Stage position: X={x:.1f}  Y={y:.1f}  Z={z:.2f} µm")
+    log.info("MM2 connected.  Stage position: X=%.1f  Y=%.1f  Z=%.2f µm", x, y, z)
     return stage
 
 
@@ -147,15 +148,15 @@ def _connect_spc(args: argparse.Namespace):
         default_ini = Path("spcm_SLIM.ini")
         if default_ini.exists():
             ini_path = default_ini
-            print(f"[navigator] Using default SPC ini: {default_ini.resolve()}", flush=True)
-    print(f"[navigator] Initializing SPC-180NX ({label}) …", flush=True)
+            log.info("Using default SPC ini: %s", default_ini.resolve())
+    log.info("Initializing SPC-180NX (%s) …", label)
     try:
         spc = SPCModule(mod_no=0, simulate=simulate, ini_path=ini_path)
     except Exception as exc:
-        print(f"[navigator] SPC init failed: {exc}", file=sys.stderr)
+        log.error("SPC init failed: %s", exc)
         sys.exit(1)
 
-    print("[navigator] SPC ready.")
+    log.info("SPC-180NX ready.")
     return spc
 
 
@@ -163,22 +164,27 @@ def main() -> None:
     args = _build_arg_parser().parse_args()
 
     import datetime
-    log_level = logging.DEBUG if args.debug else logging.WARNING
     log_fmt = "%(asctime)s.%(msecs)03d [%(name)s] %(levelname)s: %(message)s"
     log_dir = Path("logs")
     log_dir.mkdir(exist_ok=True)
     ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     log_file = log_dir / f"navigator_{ts}.log"
-    logging.basicConfig(
-        level=log_level,
-        format=log_fmt,
-        datefmt="%H:%M:%S",
-        filename=log_file,
-        filemode="w",
-        force=True,
-    )
+
+    root = logging.getLogger()
+    root.setLevel(logging.DEBUG)
+
+    fh = logging.FileHandler(log_file, mode="w", encoding="utf-8")
+    fh.setLevel(logging.DEBUG if args.debug else logging.WARNING)
+    fh.setFormatter(logging.Formatter(log_fmt, datefmt="%H:%M:%S"))
+    root.addHandler(fh)
+
+    ch = logging.StreamHandler()
+    ch.setLevel(logging.INFO)
+    ch.setFormatter(logging.Formatter("[%(name)s] %(levelname)s: %(message)s"))
+    root.addHandler(ch)
+
     if args.debug:
-        print(f"[navigator] logging to {log_file.resolve()}", flush=True)
+        log.info("DEBUG logging → %s", log_file.resolve())
 
     stage = _connect_hardware(args) if args.hardware else None
     spc = _connect_spc(args) if (args.spc or args.spc_sim) else None
