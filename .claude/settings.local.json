@@ -5,7 +5,13 @@
       "Bash(uv init:*)",
       "Bash(mkdir -p src/navigator)",
       "Bash(uv run:*)",
-      "Bash(tasklist)"
+      "Bash(tasklist)",
+      "Bash(python -c \"from imgui_bundle import implot; help\\(implot.plot_histogram\\)\")",
+      "Bash(python:*)",
+      "Bash(.venv/Scripts/python -c \"from src.navigator.spc_module import SPCModule; import inspect; sig = inspect.signature\\(SPCModule.acquire_microtimes\\); print\\('acquire_microtimes OK:', sig\\)\" 2>&1)",
+      "Bash(.venv/Scripts/python -c \"from src.navigator.app import App, PointResult; print\\('OK'\\)\")",
+      "Bash(.venv/Scripts/python -c \"from src.navigator.app import App; from src.navigator.spc_module import SPCModule; print\\('OK'\\)\")",
+      "Bash(git checkout:*)"
     ]
   }
 }
